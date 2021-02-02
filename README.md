@@ -1,4 +1,4 @@
-# Hank_Decision_Tree
+# Decision_Tree_semi-random-split
 Conventional decision tree algorithm with my ideas and customization added
 
 In this project, I will rebuild traditional Decision Tree algorithm from scratch and add a new feature -- semi-randomly split node. It basically takes a proportion subsample 
