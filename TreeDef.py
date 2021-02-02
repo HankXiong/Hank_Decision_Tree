@@ -11,8 +11,10 @@ from abc import ABC, abstractmethod
 from numpy.random import RandomState
 '''
 TODO iteam
-2 allow for random split
-3. my idea
+1. allow select sample based row_idxs; DONE
+2. allow choose feature set in each tree; DONE
+3 allow for random split; TODO
+4. my idea; TODO 
 '''
 
 class myBaseTreeClassifier(ABC):
