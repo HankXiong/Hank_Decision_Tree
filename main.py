@@ -19,11 +19,16 @@ MIN_SAMPLES_LEAF = 4
 
 socre = np.float64('inf')
 
-a = myDecisionTreeClassifier(MAX_DEPTH = 3,metrics_type = 'Gini')
+a = myDecisionTreeClassifier(MAX_DEPTH = 3,metrics_type = 'Gini',MAX_FEATURES= None,MIN_SAMPLES_LEAF=8 )
 a.fit(X,y)
+a.lhs.unique_classes
+a.lhs.probs
+tmp = a.predict_probability(X)
+a.predict_probability(X[:20,:])
+a.predict_probability(X[40:75,:])
 
-a.predict(np.array([1,1.5,2,2]))
-
+a.probs
+a.rhs.rhs.classes
 
 for xi in np.nditer(X):
   print(xi)
