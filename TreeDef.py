@@ -13,7 +13,7 @@ from numpy.random import RandomState
 TODO iteam
 1. allow select sample based row_idxs; DONE
 2. allow choose feature set in each tree; DONE
-3 allow for random split; TODO
+3 allow for random split; DONE
 4. my idea; TODO 
 '''
 
@@ -89,7 +89,7 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
     def __str__(self):
         s = f'n: {self.n}, score: {self.cur_score}'
         if not self.is_leaf():
-            s += f'\n\t score_if_split: {self.score_if_split}, split_col_idx: {self.split_col_idx}, split_value:{self.split_value}'
+            s += f'\n\t score_if_split: {self.score_if_split}, split_col_idx: {self.col_idxs[self.split_col_idx]}, split_value:{self.split_value}'
         return s
     
     def is_leaf(self):
@@ -126,8 +126,14 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
         ## the full set class probabilitys of each observation in X
         self.classes, self.class_probs = None, None
         
-        ## TODO
-        self.best_split() 
+        if self.split == 'best':
+            self.best_split() 
+        elif self.split == 'random':
+            self.random_split()
+        elif self.split == 'semi_random':
+            self.semi_random_split()
+        else:
+            raise ValueError("no such split method "+ self.split)
         
         return self
     
@@ -138,10 +144,38 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
             self.find_column_best_split(self.tree_X[:,c],self.tree_y, c)
         
         print(self.__str__() + f', max_depth: {self.MAX_DEPTH}')
+        
+        self.depth_first_tree_builder()
+        
 
+        return
+    
+    def random_split(self):
+        for c in range(self.c):
+            x = self.tree_X[:,c]
+            ## randomly select a point to split
+            xi = self.random_state.choice(x,size = 1)
+            lhs_idxs, rhs_idxs = (x<=xi), (x > xi) 
+            ln,rn = np.sum(lhs_idxs), np.sum(rhs_idxs)
+            if ln < self.MIN_SAMPLES_LEAF or rn < self.MIN_SAMPLES_LEAF:
+                continue
+            lhs_y, rhs_y = self.tree_y[lhs_idxs], self.tree_y[rhs_idxs]
+            split_score = ln / self.n * self.eval_metrics(lhs_y) + rn / self.n * self.eval_metrics(rhs_y)
+            if split_score < self.score_if_split and split_score < self.cur_score:
+                self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
+        print(self.__str__() + f', max_depth: {self.MAX_DEPTH}')
+        
+        self.depth_first_tree_builder()
+        
+        pass
+    
+    def semi_random_split(self):
+        pass
+    
+    def depth_first_tree_builder(self):
+        
         if self.is_leaf() : 
             return
-        
         x = self.tree_X[:,self.split_col_idx]
         lhs_idxs , rhs_idxs = self.row_idxs[x <= self.split_value] , self.row_idxs[x > self.split_value] 
 
@@ -159,8 +193,7 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
                                             MIN_SAMPLES_LEAF = self.MIN_SAMPLES_LEAF,
                                             MAX_FEATURES=self.MAX_FEATURES,
                                             random_state=state2).fit(self.X, self.y, rhs_idxs)
-
-        return
+        return 
     
     def  find_column_best_split(self, x, y, c):
         # given a column of x, find the best split value and corresponding score
