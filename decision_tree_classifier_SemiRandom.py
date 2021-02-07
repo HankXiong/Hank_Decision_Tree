@@ -8,13 +8,12 @@ Created on Fri Jan 29 18:38:16 2021
 import numpy as np
 # import pandas as pd
 from abc import ABC, abstractmethod
-from numpy.random import RandomState
 '''
-TODO iteam
+iteams
 1. allow select sample based row_idxs; DONE
-2. allow choose feature set in each tree; DONE
-3 allow for random split; DONE
-4. my idea; TODO 
+2. allow randomly select feature set in each tree; DONE
+3. allow for random split; DONE
+4. my idea - proportion best split, maximum likelihood to find the best split - to make split less biaed. DONE
 '''
 
 class myBaseTreeClassifier(ABC):
@@ -24,20 +23,43 @@ class myBaseTreeClassifier(ABC):
                  MAX_DEPTH,
                  MIN_SAMPLES_LEAF,
                  MAX_FEATURES = None,
-                 random_state = None):
+                 random_state = None,
+                 pn = np.exp(-1)):
+        
         self.split = split
         self.metrics_type = metrics_type
         self.MAX_DEPTH = MAX_DEPTH
         self.MIN_SAMPLES_LEAF = MIN_SAMPLES_LEAF
         self.MAX_FEATURES = MAX_FEATURES
-        self.random_state = RandomState(random_state)
+        self.random_state = np.random.RandomState(random_state)
+        self.pn = pn
         #self.random_state2 = RandomState(random_state)
-
+    
     @abstractmethod
     def __str__(self):
         pass
     
+    @abstractmethod
+    def validate_input(self):
+        pass
+
+
     def eval_metrics(self, y):
+        '''
+        evaluate the impurity score
+
+        Parameters
+        ----------
+        y : array of class of shape (n_sample,)
+            the array of classes used to evaluate impurity
+
+
+        Returns
+        -------
+        float
+            different metrics used to measure impurity
+
+        '''
         n = y.shape[0]
         unique_classes, counts = np.unique(y, return_counts=True)
         n_classes = len(unique_classes)
@@ -75,15 +97,65 @@ class myBaseTreeClassifier(ABC):
     
         
 class myDecisionTreeClassifier(myBaseTreeClassifier):
+    '''A Decision Tree Classifier
+        
+
+        Parameters
+        ----------
+        split : {'best','random','proportion_best','max_like_best'}
+            the split method for the tree
+            'best': find the split point among available feature set that decreases the impurity the most
+            'random': randomly choose 1 split point for each feature in the feature set, and use the one that decreases impurity most as the split point
+            'proportion_best': choose a proportion of samples and use the best split point among them (local maximum)
+            'max_like_best': The strategy used to maximize the probability to find the best split point (assume sequential coming and cannot go back),
+                        more details can be seen in https://en.wikipedia.org/wiki/Secretary_problem
+            The default is 'best'.
+            
+        metrics_type : {'Gini','Entropy','Misclassification'}
+            the metrics used to measure impurity in the target
+            The default is 'Gini'.
+            
+        MAX_DEPTH : Int
+            The maximum depth of the tree
+            The default is 1.
+            
+        MIN_SAMPLES_LEAF : Int or float
+            if Int, it specifies the minimum required number of samples required to be a leaf node, a split point will 
+            only be considered if it leaves at least MIN_SAMPLES_LEAF training samples in each of the left and right branches. 
+            if float, then ceil(min_samples_leaf * n_samples) will be used
+            The default is 1.
+            
+        MAX_FEATURES : {Int, float, "sqrt", "log2"}
+            The number of features to consider when looking for the best split:
+
+            If int, then consider max_features features at each split.
+            If float, then max_features is a fraction and int(max_features * n_features) features are considered at each split.
+            If “sqrt”, then max_features=sqrt(n_features).
+            If “log2”, then max_features=log2(n_features).
+            If None, then max_features=n_features.
+            
+            The default is None.
+            
+        random_state :seed : {None, int, array_like, BitGenerator}, optional
+            Random seed used to initialize the pseudo-random number generator or
+            an instantized BitGenerator. 
+            The default is None.
+            
+        pn : float, optional
+            The proportion of samples in each tree used to find local maximum
+            The default is np.exp(-1), which is the optimal proportion for "max_like_best".
+
+
+        '''
     def __init__(self,split = 'best', metrics_type = 'Gini', 
                  MAX_DEPTH = 1, MIN_SAMPLES_LEAF = 1, 
-                 MAX_FEATURES = None, random_state = None):
-        
+                 MAX_FEATURES = None, random_state = None, pn = np.exp(-1)):
         super().__init__(split = split, metrics_type = metrics_type,
                          MAX_DEPTH = MAX_DEPTH, 
                          MIN_SAMPLES_LEAF = MIN_SAMPLES_LEAF,
                          MAX_FEATURES = MAX_FEATURES,
-                         random_state = random_state)
+                         random_state = random_state,
+                         pn = pn)
 
         
     def __str__(self):
@@ -126,34 +198,36 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
         ## the full set class probabilitys of each observation in X
         self.classes, self.class_probs = None, None
         
+        self.validate_input()
+        
         if self.split == 'best':
-            self.best_split() 
+            self.__best_split() 
         elif self.split == 'random':
-            self.random_split()
-        elif self.split == 'semi_random':
-            self.semi_random_split()
+            self.__random_split()
+        elif self.split == 'proportion_best' or self.split == 'max_like_best':
+            self.__semi_random_split()
         else:
             raise ValueError("no such split method "+ self.split)
         
         return self
     
-    def best_split(self):
+    def __best_split(self):
         # split the tree into lhs and rhs 
         for c in range(self.c): 
             ## go through best split in each available column and update the tree property
-            self.find_column_best_split(self.tree_X[:,c],self.tree_y, c)
+            self.__find_column_best_split(self.tree_X[:,c],self.tree_y, c)
         
         print(self.__str__() + f', max_depth: {self.MAX_DEPTH}')
         
-        self.depth_first_tree_builder()
+        self.__depth_first_tree_builder()
         
 
         return
     
-    def random_split(self):
+    def __random_split(self):
         for c in range(self.c):
             x = self.tree_X[:,c]
-            ## randomly select a point to split
+            ## randomly select a point in each feature, choose the selected best to split
             xi = self.random_state.choice(x,size = 1)
             lhs_idxs, rhs_idxs = (x<=xi), (x > xi) 
             ln,rn = np.sum(lhs_idxs), np.sum(rhs_idxs)
@@ -165,14 +239,22 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
                 self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
         print(self.__str__() + f', max_depth: {self.MAX_DEPTH}')
         
-        self.depth_first_tree_builder()
+        self.__depth_first_tree_builder()
         
+        return
+    
+    def __semi_random_split(self):
+        for c in range(self.c):
+            
+            for_compare_n = round(self.pn * self.tree_X.shape[0]  )
+            self.__find_column_proportion_best(self.tree_X[:,c], self.tree_y, c, for_compare_n )
+        
+        print(self.__str__() + f', max_depth: {self.MAX_DEPTH}')
+        
+        self.__depth_first_tree_builder()
         pass
     
-    def semi_random_split(self):
-        pass
-    
-    def depth_first_tree_builder(self):
+    def __depth_first_tree_builder(self):
         
         if self.is_leaf() : 
             return
@@ -186,16 +268,18 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
                                             MAX_DEPTH = self.MAX_DEPTH - 1, 
                                             MIN_SAMPLES_LEAF = self.MIN_SAMPLES_LEAF,
                                             MAX_FEATURES=self.MAX_FEATURES,
-                                            random_state=state1).fit(self.X, self.y, lhs_idxs)
+                                            random_state=state1,
+                                            pn = self.pn).fit(self.X, self.y, lhs_idxs)
         self.rhs = myDecisionTreeClassifier(split = self.split,
                                             metrics_type =  self.metrics_type, 
                                             MAX_DEPTH = self.MAX_DEPTH - 1, 
                                             MIN_SAMPLES_LEAF = self.MIN_SAMPLES_LEAF,
                                             MAX_FEATURES=self.MAX_FEATURES,
-                                            random_state=state2).fit(self.X, self.y, rhs_idxs)
+                                            random_state=state2,
+                                            pn = self.pn).fit(self.X, self.y, rhs_idxs)
         return 
     
-    def  find_column_best_split(self, x, y, c):
+    def  __find_column_best_split(self, x, y, c):
         # given a column of x, find the best split value and corresponding score
         # update score_if_split, split_col_idx, split_value, 
         x, y = self.order_xy(x,y)
@@ -207,11 +291,66 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
             
             xi = x[i]
             lhs_y, rhs_y = y[x <= xi], y[x > xi]
-            split_score = ( i+1 ) / self.n * self.eval_metrics(lhs_y) + (self.n - i - 1)/self.n * self.eval_metrics(rhs_y)
+            split_score = len(lhs_y) / self.n * self.eval_metrics(lhs_y) + len(rhs_y)/self.n * self.eval_metrics(rhs_y)
             if split_score < self.score_if_split and split_score < self.cur_score:
                 self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
         return
+    
+    def __find_column_proportion_best(self, x, y, c, for_compare_n ):
+        # given a column x, randomly choose p proportion, find the best split point among them
+        # if split = "porportion_best":
+            # go with that
+        # elif split = "max_like_best":
+            # go through the rest sequentially
+            # once find one better point, go with that
+            # otherwise randomly pick one
+        shuffled_idxs = self.random_state.permutation(len(x))
+        shuffled_for_compare_x = x[shuffled_idxs[:for_compare_n]]
+        
+        for i in range(0, len(shuffled_for_compare_x) ):
+            xi = shuffled_for_compare_x[i]
+            lhs_y, rhs_y = y[x <= xi], y[x > xi]
 
+            if (len(lhs_y) < self.MIN_SAMPLES_LEAF - 1) or (len(rhs_y) < self.MIN_SAMPLES_LEAF - 1):
+                continue
+            
+            split_score = len(lhs_y)  / self.n * self.eval_metrics(lhs_y) + len(rhs_y)/self.n * self.eval_metrics(rhs_y)
+            if split_score < self.score_if_split and split_score < self.cur_score:
+                self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
+                
+        if self.split == 'proportion_best':
+            pass
+        
+        elif self.split == 'max_like_best':
+            rest_x  = x[shuffled_idxs[for_compare_n:]]
+            best_in_for_compare = True
+            for i in range(0, len(rest_x)):
+                xi = rest_x[i]
+                lhs_y, rhs_y = y[x <= xi], y[x > xi]
+                if (len(lhs_y) < self.MIN_SAMPLES_LEAF - 1) or (len(rhs_y) < self.MIN_SAMPLES_LEAF - 1):
+                    continue
+            
+                split_score = len(lhs_y)  / self.n * self.eval_metrics(lhs_y) + len(rhs_y)/self.n * self.eval_metrics(rhs_y)
+                if split_score < self.score_if_split and split_score < self.cur_score:
+                    self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
+                    ## found a better one, go with this
+                    best_in_for_compare = False
+                    break
+            
+            if best_in_for_compare:
+                xi = self.random_state.choice(x)
+                lhs_y, rhs_y = y[x <= xi], y[x > xi]
+                if (len(lhs_y) < self.MIN_SAMPLES_LEAF - 1) or (len(rhs_y) < self.MIN_SAMPLES_LEAF - 1):
+                    self.score_if_split,self.split_value, self.split_col_idx = np.float('inf'), None, None
+                else:
+                    split_score = len(lhs_y)  / self.n * self.eval_metrics(lhs_y) + len(rhs_y)/self.n * self.eval_metrics(rhs_y)
+                    self.score_if_split,self.split_value, self.split_col_idx = split_score, xi, c
+        else:
+            raise ValueError('no such split method '+ self.split)
+        
+        
+        return
+    
     
     def __class_with_prob(self, y):
         n = y.shape[0]
@@ -228,14 +367,15 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
     
     def predict_probability(self, X):
         '''
-            n * number of unique class pandas dataframe
+           give the predicted probability of all classes for each observation in X
+           
         Parameters
         ----------
-        X : n * m numpy.array
-            new feature matrix for prediction
+        X : numpy.array of shape (n_samples, n_features)
+           the input samples for predicting
         Returns
         -------
-         pandas dataframe, n by number of classes
+         array-like of shape (n_samples, n_unique_classes)
 
         '''
         if len(X.shape) < 2:
@@ -249,6 +389,20 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
         return probs
         
     def predict(self, X):
+        '''
+        predict the most like class for each observation of X
+
+        Parameters
+        ----------
+        X : numpy.array of shape (n_samples, n_features)
+           the input samples for predicting
+
+        Returns
+        -------
+        array-like of shape (n_samples, )
+            the predict class
+
+        '''
         probs = self.predict_probability(X)
         if len(X.shape) < 2:
             return self.unique_classes[np.argmax(probs)]
@@ -280,3 +434,14 @@ class myDecisionTreeClassifier(myBaseTreeClassifier):
             else:
                 raise ValueError('No such {self.MAX_FEATURES} choice')
         return col_idxs
+    
+    def validate_input(self):
+        if self.pn > 0 and self.pn < 1:
+            pass
+        else:
+            raise ValueError('pn should be within (0,1)')
+
+        if self.MIN_SAMPLES_LEAF >= 1:
+            self.MIN_SAMPLES_LEAF = int(self.MIN_SAMPLES_LEAF)
+        elif self.MIN_SAMPLES_LEAF > 0 and self.MIN_SAMPLES_LEAF < 1:
+            self.MIN_SAMPLES_LEAF = int(np.ceil(self.MIN_SAMPLES_LEAF * self.X.shape[0]))
